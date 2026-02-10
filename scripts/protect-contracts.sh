@@ -13,8 +13,16 @@ BASENAME=$(basename "$FILE_PATH")
 
 # Contracts are compiled output — block direct edits
 if echo "$FILE_PATH" | grep -q "/contracts/"; then
-  echo "BLOCKED: $BASENAME is compiled from decisions. Use /compile to regenerate."
+  echo "BLOCKED: $BASENAME is compiled from decisions. Use /dna:compile to regenerate."
   exit 2
+fi
+
+# Advisory: warn on governance files (don't block — user may need to edit)
+if echo "$FILE_PATH" | grep -q "/.claude/settings\.json"; then
+  echo "WARNING: .claude/settings.json controls plugin configuration. Edits may disable governance hooks."
+fi
+if echo "$FILE_PATH" | grep -q "/.claude/CLAUDE\.md"; then
+  echo "WARNING: CLAUDE.md is the project operating manual. Verify this change is intentional."
 fi
 
 # Structured files — warn but allow

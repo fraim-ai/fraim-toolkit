@@ -2,6 +2,10 @@
 # PostToolUse hook: runs dna-graph validate after any Edit/Write to decision files.
 # Advisory only (exit 0) — warns about issues but does not block.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
+export PLUGIN_ROOT
+
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 -c "
@@ -25,14 +29,9 @@ if not basename.startswith('DEC-'):
     sys.exit(0)
 
 # Run validate quietly
-project_dir = os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd())
-tool_path = None
-for subpath in ['.claude/dna/tools/dna-graph.py', '.claude/tools/dna-graph.py']:
-    candidate = os.path.join(project_dir, subpath)
-    if os.path.exists(candidate):
-        tool_path = candidate
-        break
-if tool_path is None:
+plugin_root = os.environ.get('PLUGIN_ROOT', '')
+tool_path = os.path.join(plugin_root, 'tools', 'dna-graph.py') if plugin_root else None
+if not tool_path or not os.path.exists(tool_path):
     sys.exit(0)
 
 result = subprocess.run(

@@ -1,15 +1,13 @@
 ---
-name: apply
-description: Confirm, mutate, cascade, and commit changes to decisions
-user_invocable: true
-auto_invocable: false
+description: Confirm, mutate, cascade, and commit changes to decisions. Explicit only — never auto-invoked.
+disable-model-invocation: true
 ---
 
-# /apply — Commit Changes
+# /dna:apply — Commit Changes
 
 The human has decided on a change. Apply it by updating decisions, cascading through the graph, and committing.
 
-**/apply is always explicit.** Never auto-invoked.
+**/dna:apply is always explicit.** Never auto-invoked.
 
 ## Steps
 
@@ -68,11 +66,12 @@ Verbs: `add`, `revise`, `restructure`, `merge`, `clarify`
 ## Constraints
 
 - Iron rule: don't commit a downstream decision if upstream deps aren't committed
-- Contracts are compiled output — use /compile, don't patch directly
+- Contracts are compiled output — use /dna:compile, don't patch directly
 
 ## Context
 
 - Constitution: `constitution/` directory
 - Decisions: `decisions/` directory
-- Format: `.claude/dna/format.md`
-- Graph tool: `CLAUDE_PROJECT_DIR="$PWD" python3 .claude/dna/tools/dna-graph.py`
+- Project config: `.dna/config.json`
+- Graph tool: use the DNA tool path shown in session health output
+- Format spec: see `format.md` in the dna plugin

@@ -1,15 +1,13 @@
 ---
-name: compile
-description: Compile decisions to human contract, agent contract, or both
-user_invocable: true
-auto_invocable: false
+description: Compile decisions to human contract, agent contract, or both. Explicit only.
+disable-model-invocation: true
 ---
 
-# /compile — Compile Contracts
+# /dna:compile — Compile Contracts
 
 Compile decisions into human contract, agent contract, or both.
 
-**Usage:** `/compile human`, `/compile agent`, `/compile` (both)
+**Usage:** `/dna:compile human`, `/dna:compile agent`, `/dna:compile` (both)
 
 ## Targets
 
@@ -18,7 +16,7 @@ Compile decisions into human contract, agent contract, or both.
 Organized by level. Narrative prose. What people agree on.
 
 ```markdown
-# Human Contract — {PROJECT_NAME}
+# Human Contract — [project name from .dna/config.json]
 
 ## Identity (Level 1)
 [compiled from level 1 decisions]
@@ -44,7 +42,7 @@ For each level section:
 Structured for agent consumption. Constitution + project decisions.
 
 ```markdown
-# Agent Contract — {PROJECT_NAME}
+# Agent Contract — [project name from .dna/config.json]
 
 ## Principles
 [from constitution decisions]
@@ -64,12 +62,13 @@ Structured for agent consumption. Constitution + project decisions.
 
 ## What to do
 
-0. Run `dna-graph compile-manifest --target {target} --json` to get the deterministic skeleton
-1. Read decisions listed in the manifest (not all decisions — the manifest provides the exact set)
-2. Sort by level, then by dependency order within level
-3. Compile the target contract(s) following the structure above
-4. Present compiled output for human approval
-5. Write to `contracts/` on approval
+0. Read `.dna/config.json` to get the project name for contract headers
+1. Run `dna-graph compile-manifest --target {target} --json` to get the deterministic skeleton
+2. Read decisions listed in the manifest (not all decisions — the manifest provides the exact set)
+3. Sort by level, then by dependency order within level
+4. Compile the target contract(s) following the structure above
+5. Present compiled output for human approval
+6. Write to `contracts/` on approval
 
 ## Constraints
 
@@ -83,5 +82,6 @@ Structured for agent consumption. Constitution + project decisions.
 - Constitution: `constitution/` directory
 - Decisions: `decisions/` directory
 - Contracts: `contracts/` directory
-- Format: `.claude/dna/format.md`
-- Graph tool: `CLAUDE_PROJECT_DIR="$PWD" python3 .claude/dna/tools/dna-graph.py`
+- Project config: `.dna/config.json`
+- Graph tool: use the DNA tool path shown in session health output
+- Format spec: see `format.md` in the dna plugin

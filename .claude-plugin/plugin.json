@@ -1,0 +1,6 @@
+{
+  "name": "dna",
+  "description": "Decision DNA toolkit — graph validation, hooks, and skills for fraim decision systems",
+  "version": "1.0.0",
+  "author": { "name": "Kyle Slater" }
+}

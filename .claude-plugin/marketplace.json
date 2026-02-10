@@ -1,0 +1,11 @@
+{
+  "name": "fraim-plugins",
+  "owner": { "name": "Kyle Slater" },
+  "plugins": [
+    {
+      "name": "dna",
+      "source": "./",
+      "description": "Decision DNA toolkit for fraim projects"
+    }
+  ]
+}

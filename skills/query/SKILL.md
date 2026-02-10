@@ -1,11 +1,8 @@
 ---
-name: query
-description: Search and synthesize from decisions
-user_invocable: true
-auto_invocable: true
+description: Search and synthesize from decisions. Auto-invoked on understanding signals like "what does...", "how does...", "explain..."
 ---
 
-# /query — Explore the Decision System
+# /dna:query — Explore the Decision System
 
 The person wants to understand what the decision system says about a concept, term, or design area.
 
@@ -42,5 +39,6 @@ For each relevant decision:
 
 - Constitution: `constitution/` directory
 - Decisions: `decisions/` directory
-- Format: `.claude/dna/format.md`
-- Graph tool: `CLAUDE_PROJECT_DIR="$PWD" python3 .claude/dna/tools/dna-graph.py`
+- Project config: `.dna/config.json`
+- Graph tool: use the DNA tool path shown in session health output
+- Format spec: see `format.md` in the dna plugin

@@ -1,10 +1,11 @@
 #!/bin/sh
 # SessionStart hook: show health summary + last commit.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 HEALTH_FILE="$PROJECT_DIR/HEALTH.md"
-TOOL="$PROJECT_DIR/.claude/dna/tools/dna-graph.py"
-[ -f "$TOOL" ] || TOOL="$PROJECT_DIR/.claude/tools/dna-graph.py"
+TOOL="$PLUGIN_ROOT/tools/dna-graph.py"
 
 # Try live health via dna-graph
 if command -v python3 >/dev/null 2>&1 && [ -f "$TOOL" ]; then
@@ -50,6 +51,7 @@ if command -v git >/dev/null 2>&1; then
   fi
 fi
 
+echo "DNA tool: $TOOL"
 echo "==================="
 
 exit 0
