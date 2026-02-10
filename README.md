@@ -50,7 +50,7 @@ claude --plugin-dir ~/Desktop/fraim-toolkit
 ## Project Requirements
 
 - `.dna/config.json` at project root (project name, optional terminology/deleted artifact config)
-- `decisions/` and/or `constitution/` directories
+- `dna/` and/or `constitution/` directories
 - `contracts/` directory for compiled output
 
 ## Configuration

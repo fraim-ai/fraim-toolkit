@@ -80,7 +80,7 @@ Structured for agent consumption. Constitution + project decisions.
 ## Context
 
 - Constitution: `constitution/` directory
-- Decisions: `decisions/` directory
+- DNA: `dna/` directory
 - Contracts: `contracts/` directory
 - Project config: `.dna/config.json`
 - Graph tool: use the DNA tool path shown in session health output

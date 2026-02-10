@@ -13,7 +13,7 @@ BASENAME=$(basename "$FILE_PATH")
 
 # Contracts are compiled output — block direct edits
 if echo "$FILE_PATH" | grep -q "/contracts/"; then
-  echo "BLOCKED: $BASENAME is compiled from decisions. Use /dna:compile to regenerate."
+  echo "BLOCKED: $BASENAME is compiled from DNA. Use /dna:compile to regenerate."
   exit 2
 fi
 

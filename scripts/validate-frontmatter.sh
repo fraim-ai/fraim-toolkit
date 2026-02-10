@@ -1,5 +1,5 @@
 #!/bin/sh
-# PreToolUse hook: validates frontmatter for decisions/ and constitution/ writes.
+# PreToolUse hook: validates frontmatter for dna/ and constitution/ writes.
 # Blocking (exit 2) on structural violations. Graceful degradation (exit 0) if parsing fails.
 
 command -v python3 >/dev/null 2>&1 || exit 0
@@ -38,8 +38,8 @@ if not content:
 
 basename = os.path.basename(file_path)
 
-# Only check decisions/ and constitution/ DEC files
-if '/decisions/' not in file_path and '/constitution/' not in file_path:
+# Only check dna/ and constitution/ DEC files
+if '/dna/' not in file_path and '/constitution/' not in file_path:
     sys.exit(0)
 if not basename.startswith('DEC-'):
     sys.exit(0)

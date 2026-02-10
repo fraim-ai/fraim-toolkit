@@ -71,7 +71,7 @@ Verbs: `add`, `revise`, `restructure`, `merge`, `clarify`
 ## Context
 
 - Constitution: `constitution/` directory
-- Decisions: `decisions/` directory
+- DNA: `dna/` directory
 - Project config: `.dna/config.json`
 - Graph tool: use the DNA tool path shown in session health output
 - Format spec: see `format.md` in the dna plugin

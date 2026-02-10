@@ -20,8 +20,8 @@ file_path = data.get('file_path', '')
 if not file_path:
     sys.exit(0)
 
-# Only check decisions/ and constitution/ DEC files
-if '/decisions/' not in file_path and '/constitution/' not in file_path:
+# Only check dna/ and constitution/ DEC files
+if '/dna/' not in file_path and '/constitution/' not in file_path:
     sys.exit(0)
 
 basename = os.path.basename(file_path)

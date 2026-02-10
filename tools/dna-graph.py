@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """dna-graph: Graph operations for a decision system.
 
-Parses decisions/*.md and constitution/*.md frontmatter into a dependency graph.
+Parses dna/*.md and constitution/*.md frontmatter into a dependency graph.
 
 Subcommands (read):
   validate              Check frontmatter, graph topology, and body content
@@ -29,7 +29,7 @@ from datetime import date
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-DECISIONS_DIR = os.path.join(PROJECT_ROOT, "decisions")
+DNA_DIR = os.path.join(PROJECT_ROOT, "dna")
 CONSTITUTION_DIR = os.path.join(PROJECT_ROOT, "constitution")
 CONTRACTS_DIR = os.path.join(PROJECT_ROOT, "contracts")
 HEALTH_FILE = os.path.join(PROJECT_ROOT, "HEALTH.md")
@@ -428,13 +428,13 @@ def validate_for_set(nid, field, value, nodes):
 def load_graph():
     """Load all decision nodes into a dict keyed by ID.
 
-    Loads from both constitution/ (upstream) and decisions/ (project),
+    Loads from both constitution/ (upstream) and dna/ (project),
     tracking scope per node. Errors on ID collision across directories.
     """
     dirs = []
     if os.path.isdir(CONSTITUTION_DIR):
         dirs.append(("constitution", CONSTITUTION_DIR))
-    dirs.append(("project", DECISIONS_DIR))
+    dirs.append(("project", DNA_DIR))
 
     nodes = {}
     for scope, dna_dir in dirs:
@@ -888,8 +888,8 @@ def cmd_index(nodes):
         write_index(constitution_nodes, CONSTITUTION_DIR, "Constitution Index")
         print(f"constitution/INDEX.md: {len(constitution_nodes)} decisions")
 
-    write_index(project_nodes, DECISIONS_DIR, "Decisions Index")
-    print(f"decisions/INDEX.md: {len(project_nodes)} decisions")
+    write_index(project_nodes, DNA_DIR, "DNA Index")
+    print(f"dna/INDEX.md: {len(project_nodes)} decisions")
     return 0
 
 
@@ -942,7 +942,7 @@ def cmd_health(nodes):
         lines.append(f"- Levels: {level_summary(constitution_nodes)}")
         lines.append("")
 
-    lines.append("### Decisions" if constitution_nodes else "")
+    lines.append("### DNA" if constitution_nodes else "")
     lines.append(f"- Decisions: {len(project_nodes)} — {state_summary(project_nodes)}")
     lines.append(f"- Levels: {level_summary(project_nodes)}")
     lines.append(f"- **Total: {len(nodes)} decisions**")
@@ -1082,7 +1082,7 @@ def cmd_create(args):
         "depends_on": depends_on,
     }
 
-    target_dir = CONSTITUTION_DIR if constitution else DECISIONS_DIR
+    target_dir = CONSTITUTION_DIR if constitution else DNA_DIR
 
     # Load graph and validate
     nodes = load_graph()
@@ -1105,7 +1105,7 @@ def cmd_create(args):
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(content)
 
-    scope = "constitution" if constitution else "decisions"
+    scope = "constitution" if constitution else "dna"
     print(f"Created {nid} (level {level}, {state}) in {scope}/")
     return 0
 

@@ -9,7 +9,7 @@ One node type: **decisions** — choices with reasoning, assumptions, tradeoffs,
 ## Two Directories
 
 - **Constitution** (`constitution/`) — Behavioral governance: what agents need made explicit. Operating principles, containment models, escalation patterns. Portable across projects.
-- **Decisions** (`decisions/`) — Project-specific decisions about what to build and how.
+- **DNA** (`dna/`) — Project-specific decisions about what to build and how.
 
 **Iron rule across directories:** Constitution is always upstream. A project decision can depend on a constitution decision. Never the reverse.
 

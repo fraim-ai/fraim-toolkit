@@ -12,9 +12,9 @@ The person wants to understand what the decision system says about a concept, te
 
 ### 1. Search
 
-Read decision files directly. Use Grep to find nodes mentioning the concept across `decisions/` and `constitution/`. Read matching nodes fully.
+Read decision files directly. Use Grep to find nodes mentioning the concept across `dna/` and `constitution/`. Read matching nodes fully.
 
-For structural queries, read `decisions/INDEX.md` and/or `constitution/INDEX.md` first for fast triage.
+For structural queries, read `dna/INDEX.md` and/or `constitution/INDEX.md` first for fast triage.
 
 ### 2. Synthesize
 
@@ -38,7 +38,7 @@ For each relevant decision:
 ## Context
 
 - Constitution: `constitution/` directory
-- Decisions: `decisions/` directory
+- DNA: `dna/` directory
 - Project config: `.dna/config.json`
 - Graph tool: use the DNA tool path shown in session health output
 - Format spec: see `format.md` in the dna plugin
