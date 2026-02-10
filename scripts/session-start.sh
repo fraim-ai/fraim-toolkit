@@ -41,6 +41,15 @@ if [ -n "$MANUAL" ]; then
   echo "$MANUAL"
 fi
 
+# Scratchpad summary
+if command -v python3 >/dev/null 2>&1 && [ -f "$TOOL" ]; then
+  SP_SUMMARY=$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" scratchpad-summary 2>/dev/null)
+  if [ -n "$SP_SUMMARY" ]; then
+    echo ""
+    echo "$SP_SUMMARY"
+  fi
+fi
+
 echo ""
 
 # Last commit

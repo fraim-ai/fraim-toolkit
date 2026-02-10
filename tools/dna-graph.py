@@ -8,12 +8,19 @@ Subcommands (read):
   cascade NODE [--reverse]  Compute propagation (downstream, or upstream with --reverse)
   index                 Regenerate INDEX.md per directory
   health                Generate HEALTH.md from current state
+  search TERM           Search decisions by title and body content
 
 Subcommands (write):
   create DEC-NNN        Create a new decision with pre-validated frontmatter
   set DEC-NNN FIELD VAL Update a single frontmatter field with pre-validation
   edit DEC-NNN OLD NEW  Replace body text with pre/post validation delta
   compile-manifest      Produce deterministic skeleton for contract compilation
+
+Subcommands (scratchpad):
+  scratchpad add        Add a pre-decision entry (idea, constraint, question, concern)
+  scratchpad list       List scratchpad entries (active and matured)
+  scratchpad mature     Graduate a scratchpad entry to a decision
+  scratchpad-summary    One-line summary of active scratchpad entries
 """
 
 import glob
@@ -37,6 +44,9 @@ HEALTH_FILE = os.path.join(PROJECT_ROOT, "HEALTH.md")
 VALID_STATES = {"suggested", "committed", "superseded"}
 VALID_STAKES = {"high", "medium", "low"}
 VALID_LEVELS = {1, 2, 3, 4}
+
+SCRATCHPAD_FILE = os.path.join(PROJECT_ROOT, ".dna", "scratchpad.json")
+VALID_SP_TYPES = {"idea", "constraint", "question", "concern"}
 
 # Body content linter patterns (static — always active)
 RE_STALE_INF = re.compile(r'\bINF-\d{3}\b')
@@ -86,6 +96,52 @@ def _get_deleted_artifacts():
         if pat:
             result.append((re.compile(pat), label))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Scratchpad helpers
+# ---------------------------------------------------------------------------
+
+def _load_scratchpad():
+    """Read .dna/scratchpad.json, return entries list (empty if missing)."""
+    if not os.path.exists(SCRATCHPAD_FILE):
+        return []
+    with open(SCRATCHPAD_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("entries", [])
+
+
+def _save_scratchpad(entries):
+    """Atomic write of scratchpad entries to .dna/scratchpad.json."""
+    os.makedirs(os.path.dirname(SCRATCHPAD_FILE), exist_ok=True)
+    tmp_path = SCRATCHPAD_FILE + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump({"entries": entries}, f, indent=2)
+        f.write("\n")
+    os.rename(tmp_path, SCRATCHPAD_FILE)
+
+
+def _next_sp_id(entries):
+    """Find max SP-NNN among entries, return SP-(N+1) zero-padded to 3 digits."""
+    max_n = 0
+    for e in entries:
+        m = re.match(r'^SP-(\d{3})$', e.get("id", ""))
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return f"SP-{max_n + 1:03d}"
+
+
+def _scratchpad_summary(entries):
+    """Return type-count string for active (non-matured) entries."""
+    active = [e for e in entries if not e.get("matured_to")]
+    if not active:
+        return ""
+    counts = defaultdict(int)
+    for e in active:
+        counts[e.get("type", "unknown")] += 1
+    parts = [f"{c} {t}(s)" for t, c in sorted(counts.items())]
+    return f"{len(active)} active — {', '.join(parts)}"
+
 
 # ---------------------------------------------------------------------------
 # YAML frontmatter parser (no external deps)
@@ -988,6 +1044,93 @@ def cmd_health(nodes):
 
 
 # ---------------------------------------------------------------------------
+# Search subcommand
+# ---------------------------------------------------------------------------
+
+BODY_SECTIONS = ("Decision", "Reasoning", "Assumptions", "Tradeoffs", "Detail")
+
+
+def cmd_search(args):
+    """Search decisions by title and body content.
+
+    Usage: dna-graph search TERM [TERM ...] [--json]
+    Case-insensitive. Multiple terms are OR-matched.
+    Returns: id, title, level, state, scope, matched_sections.
+    """
+    json_output = "--json" in args
+    terms = [a.lower() for a in args if a != "--json"]
+
+    if not terms:
+        print("Usage: dna-graph search TERM [TERM ...] [--json]", file=sys.stderr)
+        return 1
+
+    nodes = load_graph()
+    results = []
+
+    for nid in sorted(nodes.keys()):
+        n = nodes[nid]
+        title = (n.get("title") or "").lower()
+        body = (n.get("_body") or "")
+        body_lower = body.lower()
+
+        # Check if any term matches title or body
+        matched = False
+        for term in terms:
+            if term in title or term in body_lower:
+                matched = True
+                break
+
+        if not matched:
+            continue
+
+        # Determine which body sections matched
+        matched_sections = []
+        # Check title separately
+        for term in terms:
+            if term in title:
+                matched_sections.append("title")
+                break
+
+        # Parse body into sections and check each
+        for section_name in BODY_SECTIONS:
+            pattern = rf'^## {section_name}\s*$(.*?)(?=^## |\Z)'
+            m = re.search(pattern, body, re.MULTILINE | re.DOTALL)
+            if m:
+                section_text = m.group(1).lower()
+                for term in terms:
+                    if term in section_text:
+                        matched_sections.append(section_name)
+                        break
+
+        results.append({
+            "id": nid,
+            "title": n.get("title", ""),
+            "level": n.get("level"),
+            "state": n.get("state", "unknown"),
+            "scope": n.get("_scope", "project"),
+            "matched_sections": matched_sections,
+        })
+
+    if json_output:
+        print(json.dumps({"query": terms, "count": len(results), "results": results}, indent=2))
+        return 0
+
+    if not results:
+        print(f"No decisions match: {' '.join(terms)}")
+        return 0
+
+    print(f"Found {len(results)} decision(s) matching: {' '.join(terms)}")
+    print()
+    print(f"{'ID':<12} {'Level':<7} {'State':<12} {'Sections':<30} Title")
+    print("-" * 90)
+    for r in results:
+        sections = ", ".join(r["matched_sections"]) if r["matched_sections"] else "—"
+        print(f"{r['id']:<12} L{r['level']:<6} {r['state']:<12} {sections:<30} {r['title']}")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Write subcommands
 # ---------------------------------------------------------------------------
 
@@ -1452,6 +1595,181 @@ def _compile_manifest_agent(nodes, counts, json_output):
 
 
 # ---------------------------------------------------------------------------
+# Scratchpad subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_scratchpad(args):
+    """Dispatcher for scratchpad add/list/mature subcommands."""
+    if not args:
+        print("Usage: dna-graph scratchpad {add|list|mature} ...", file=sys.stderr)
+        return 1
+
+    sub = args[0]
+    if sub == "add":
+        return _sp_add(args[1:])
+    elif sub == "list":
+        return _sp_list(args[1:])
+    elif sub == "mature":
+        return _sp_mature(args[1:])
+    else:
+        print(f"Unknown scratchpad subcommand: {sub}", file=sys.stderr)
+        print("Usage: dna-graph scratchpad {add|list|mature} ...", file=sys.stderr)
+        return 1
+
+
+def _sp_add(args):
+    """Add a scratchpad entry.
+
+    Usage: dna-graph scratchpad add --type TYPE "content" [--links DEC-NNN,DEC-NNN]
+    """
+    sp_type = None
+    links = []
+    content = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--type" and i + 1 < len(args):
+            i += 1
+            sp_type = args[i]
+        elif args[i] == "--links" and i + 1 < len(args):
+            i += 1
+            links = [l.strip() for l in args[i].split(",") if l.strip()]
+        elif not args[i].startswith("--"):
+            content = args[i]
+        else:
+            print(f"Error: unknown flag '{args[i]}'", file=sys.stderr)
+            return 1
+        i += 1
+
+    if not sp_type:
+        print("Error: --type is required", file=sys.stderr)
+        return 1
+    if sp_type not in VALID_SP_TYPES:
+        print(f"Error: invalid type '{sp_type}' (must be one of: {', '.join(sorted(VALID_SP_TYPES))})", file=sys.stderr)
+        return 1
+    if not content:
+        print("Error: content string is required", file=sys.stderr)
+        return 1
+
+    # Validate links exist in graph
+    if links:
+        nodes = load_graph()
+        for link in links:
+            if link not in nodes:
+                print(f"Error: linked decision {link} not found in graph", file=sys.stderr)
+                return 1
+
+    entries = _load_scratchpad()
+    sp_id = _next_sp_id(entries)
+
+    entry = {
+        "id": sp_id,
+        "type": sp_type,
+        "content": content,
+        "created": date.today().isoformat(),
+        "links": links,
+        "matured_to": None,
+    }
+    entries.append(entry)
+    _save_scratchpad(entries)
+
+    link_display = f" (links: {', '.join(links)})" if links else ""
+    print(f"Added {sp_id} [{sp_type}]: {content}{link_display}")
+    return 0
+
+
+def _sp_list(args):
+    """List scratchpad entries.
+
+    Usage: dna-graph scratchpad list [--type TYPE] [--json]
+    """
+    filter_type = None
+    json_output = False
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--type" and i + 1 < len(args):
+            i += 1
+            filter_type = args[i]
+        elif args[i] == "--json":
+            json_output = True
+        i += 1
+
+    entries = _load_scratchpad()
+
+    active = [e for e in entries if not e.get("matured_to")]
+    matured = [e for e in entries if e.get("matured_to")]
+
+    if filter_type:
+        active = [e for e in active if e.get("type") == filter_type]
+        matured = [e for e in matured if e.get("type") == filter_type]
+
+    if json_output:
+        print(json.dumps({"active": active, "matured": matured}, indent=2))
+        return 0
+
+    # Human-readable table
+    if not active and not matured:
+        print("Scratchpad is empty.")
+        return 0
+
+    if active:
+        print(f"Active ({len(active)}):")
+        print(f"{'ID':<10} {'Type':<12} {'Created':<12} Content")
+        print("-" * 70)
+        for e in active:
+            links = f" → {', '.join(e['links'])}" if e.get("links") else ""
+            print(f"{e['id']:<10} {e['type']:<12} {e['created']:<12} {e['content']}{links}")
+
+    if matured:
+        print(f"\nMatured ({len(matured)}):")
+        for e in matured:
+            print(f"  {e['id']} [{e['type']}] → {e['matured_to']}")
+
+    return 0
+
+
+def _sp_mature(args):
+    """Graduate a scratchpad entry to a decision.
+
+    Usage: dna-graph scratchpad mature SP-NNN DEC-NNN
+    """
+    if len(args) < 2:
+        print("Usage: dna-graph scratchpad mature SP-NNN DEC-NNN", file=sys.stderr)
+        return 1
+
+    sp_id = args[0]
+    dec_id = args[1]
+
+    entries = _load_scratchpad()
+    entry = None
+    for e in entries:
+        if e.get("id") == sp_id:
+            entry = e
+            break
+
+    if not entry:
+        print(f"Error: {sp_id} not found in scratchpad", file=sys.stderr)
+        return 1
+
+    if entry.get("matured_to"):
+        print(f"Error: {sp_id} already matured to {entry['matured_to']}", file=sys.stderr)
+        return 1
+
+    # Validate decision exists
+    nodes = load_graph()
+    if dec_id not in nodes:
+        print(f"Error: {dec_id} not found in graph", file=sys.stderr)
+        return 1
+
+    entry["matured_to"] = dec_id
+    _save_scratchpad(entries)
+
+    print(f"Matured {sp_id} [{entry['type']}] → {dec_id}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1497,6 +1815,9 @@ def main():
         nodes = load_graph()
         return cmd_health(nodes)
 
+    elif cmd == "search":
+        return cmd_search(sys.argv[2:])
+
     elif cmd == "create":
         return cmd_create(sys.argv[2:])
 
@@ -1508,6 +1829,16 @@ def main():
 
     elif cmd == "compile-manifest":
         return cmd_compile_manifest(sys.argv[2:])
+
+    elif cmd == "scratchpad":
+        return cmd_scratchpad(sys.argv[2:])
+
+    elif cmd == "scratchpad-summary":
+        entries = _load_scratchpad()
+        summary = _scratchpad_summary(entries)
+        if summary:
+            print(f"Scratchpad: {summary}")
+        return 0
 
     else:
         print(f"Unknown command: {cmd}")

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dna": {
+      "command": "uv",
+      "args": ["run", "--python", "3.12", "${CLAUDE_PLUGIN_ROOT}/server/dna_mcp.py"],
+      "env": {
+        "CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}
