@@ -9,6 +9,7 @@ Subcommands (read):
   index                 Regenerate INDEX.md per directory
   health                Generate HEALTH.md from current state
   search TERM           Search decisions by title and body content
+  frontier              Compute the decision frontier — what to think about next
 
 Subcommands (write):
   create DEC-NNN        Create a new decision with pre-validated frontmatter
@@ -530,6 +531,77 @@ def get_deps_list(node):
         elif isinstance(dep, dict) and dep.get("id"):
             deps.append(dep["id"])
     return deps
+
+
+# ---------------------------------------------------------------------------
+# Frontier helpers
+# ---------------------------------------------------------------------------
+
+
+def _compute_transitive_downstream(nodes):
+    """BFS from every node through the dependents graph.
+
+    Returns dict[nid -> set of transitively dependent node IDs].
+    """
+    # Build reverse adjacency: dep_id -> set of nodes that depend on it
+    reverse_adj = defaultdict(set)
+    for nid, n in nodes.items():
+        for dep_id in get_deps_list(n):
+            if dep_id in nodes:
+                reverse_adj[dep_id].add(nid)
+
+    result = {}
+    for nid in nodes:
+        visited = set()
+        queue = list(reverse_adj.get(nid, set()))
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            queue.extend(reverse_adj.get(current, set()) - visited)
+        result[nid] = visited
+    return result
+
+
+def _critical_path(nodes, target_nid):
+    """For a blocked suggested decision, find the longest chain of uncommitted upstream.
+
+    BFS upstream from target through non-committed dependencies.
+    Returns list of uncommitted decision IDs from deepest root toward target
+    (excluding target itself). This is the critical path — commit these in order
+    to unblock the target.
+    """
+    visited = {target_nid}
+    queue = [(target_nid, 0)]
+    depth = {target_nid: 0}
+    parent = {}
+
+    while queue:
+        current, d = queue.pop(0)
+        for dep_id in get_deps_list(nodes.get(current, {})):
+            if dep_id in nodes and dep_id not in visited and nodes[dep_id].get("state") != "committed":
+                visited.add(dep_id)
+                depth[dep_id] = d + 1
+                parent[dep_id] = current
+                queue.append((dep_id, d + 1))
+
+    if not parent:
+        # Direct uncommitted deps only (no further chain)
+        return [d for d in get_deps_list(nodes.get(target_nid, {}))
+                if d in nodes and nodes[d].get("state") != "committed"]
+
+    # Find the deepest node (root furthest from target)
+    deepest = max(parent.keys(), key=lambda n: depth[n])
+
+    # Reconstruct path from deepest back toward target
+    path = []
+    current = deepest
+    while current != target_nid:
+        path.append(current)
+        current = parent.get(current, target_nid)
+
+    return path  # deepest root first, toward target
 
 
 # ---------------------------------------------------------------------------
@@ -1126,6 +1198,249 @@ def cmd_search(args):
     for r in results:
         sections = ", ".join(r["matched_sections"]) if r["matched_sections"] else "—"
         print(f"{r['id']:<12} L{r['level']:<6} {r['state']:<12} {sections:<30} {r['title']}")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Frontier subcommand
+# ---------------------------------------------------------------------------
+
+
+def cmd_frontier(args):
+    """Compute the decision frontier — what to think about next.
+
+    Usage: dna-graph frontier [--json] [--markdown] [--top N]
+
+    Sections:
+    1. Committable Now — suggested with all upstream committed
+    2. Blocked — suggested with uncommitted upstream + critical path
+    3. Level Gaps — per-level state breakdown
+    4. High-Weight Nodes — most transitive downstream dependents
+    """
+    json_output = "--json" in args
+    markdown_output = "--markdown" in args
+    top_n = 10
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--top" and i + 1 < len(args):
+            try:
+                top_n = int(args[i + 1])
+            except ValueError:
+                print(f"Error: --top must be a number, got '{args[i + 1]}'", file=sys.stderr)
+                return 1
+            i += 2
+        else:
+            i += 1
+
+    nodes = load_graph()
+    downstream = _compute_transitive_downstream(nodes)
+
+    # Partition suggested decisions (exclude superseded)
+    committable_now = []
+    blocked = []
+
+    for nid in sorted(nodes.keys()):
+        n = nodes[nid]
+        state = n.get("state", "unknown")
+        if state != "suggested":
+            continue
+
+        deps = get_deps_list(n)
+        uncommitted_deps = [
+            d for d in deps
+            if d in nodes and nodes[d].get("state") != "committed"
+        ]
+
+        entry = {
+            "id": nid,
+            "title": n.get("title", ""),
+            "level": n.get("level"),
+            "stakes": n.get("stakes"),
+            "scope": n.get("_scope", "project"),
+            "downstream_weight": len(downstream.get(nid, set())),
+            "downstream_ids": sorted(downstream.get(nid, set())),
+        }
+
+        if not uncommitted_deps:
+            committable_now.append(entry)
+        else:
+            entry["blockers"] = uncommitted_deps
+            entry["critical_path"] = _critical_path(nodes, nid)
+            entry["critical_path_length"] = len(entry["critical_path"])
+            blocked.append(entry)
+
+    # Sort
+    committable_now.sort(key=lambda x: (-x["downstream_weight"], x.get("level") or 99))
+    blocked.sort(key=lambda x: (x["critical_path_length"], -x["downstream_weight"]))
+
+    # Level gaps
+    level_gaps = []
+    for lvl in (1, 2, 3, 4):
+        committed = 0
+        suggested = 0
+        superseded = 0
+        for n in nodes.values():
+            if n.get("level") != lvl:
+                continue
+            s = n.get("state", "unknown")
+            if s == "committed":
+                committed += 1
+            elif s == "suggested":
+                suggested += 1
+            elif s == "superseded":
+                superseded += 1
+        total = committed + suggested + superseded
+        flags = []
+        if suggested > committed:
+            flags.append("more suggested than committed")
+        if committed == 0 and total > 0:
+            flags.append("no committed decisions")
+        level_gaps.append({
+            "level": lvl,
+            "level_name": LEVEL_NAMES[lvl],
+            "committed": committed,
+            "suggested": suggested,
+            "superseded": superseded,
+            "total": total,
+            "flags": flags,
+        })
+
+    # High-weight nodes
+    high_weight = []
+    for nid, n in nodes.items():
+        dw = len(downstream.get(nid, set()))
+        high_weight.append({
+            "id": nid,
+            "title": n.get("title", ""),
+            "level": n.get("level"),
+            "state": n.get("state", "unknown"),
+            "stakes": n.get("stakes"),
+            "scope": n.get("_scope", "project"),
+            "downstream_weight": dw,
+            "direct_dependents": sorted(get_dependents(nodes, nid)),
+        })
+    high_weight.sort(key=lambda x: -x["downstream_weight"])
+    high_weight = high_weight[:top_n]
+
+    # Summary
+    flagged_levels = sum(1 for lg in level_gaps if lg["flags"])
+    summary = {
+        "total_decisions": len(nodes),
+        "suggested": sum(1 for n in nodes.values() if n.get("state") == "suggested"),
+        "committable_count": len(committable_now),
+        "blocked_count": len(blocked),
+        "level_gap_count": flagged_levels,
+    }
+
+    # --- JSON output ---
+    if json_output:
+        output = {
+            "frontier": {
+                "committable_now": committable_now,
+                "blocked": blocked,
+                "level_gaps": level_gaps,
+                "high_weight": high_weight,
+            },
+            "summary": summary,
+        }
+        print(json.dumps(output, indent=2))
+        return 0
+
+    # --- Markdown output ---
+    if markdown_output:
+        print("# Decision Frontier")
+        print()
+        print(f"**{summary['total_decisions']} decisions** — "
+              f"{summary['suggested']} suggested, "
+              f"{summary['committable_count']} committable, "
+              f"{summary['blocked_count']} blocked")
+        print()
+
+        print("## Committable Now")
+        print()
+        if committable_now:
+            print("| ID | Title | Level | Stakes | Downstream |")
+            print("|----|-------|-------|--------|------------|")
+            for c in committable_now:
+                stakes = c["stakes"] or "—"
+                print(f"| {c['id']} | {c['title']} | L{c['level']} | {stakes} | {c['downstream_weight']} |")
+        else:
+            print("None — all suggested decisions have uncommitted upstream.")
+        print()
+
+        print("## Blocked")
+        print()
+        if blocked:
+            print("| ID | Title | Level | Blockers | Critical Path |")
+            print("|----|-------|-------|----------|---------------|")
+            for b in blocked:
+                blockers = ", ".join(b["blockers"])
+                cp = " → ".join(b["critical_path"]) + f" → {b['id']}" if b["critical_path"] else "—"
+                print(f"| {b['id']} | {b['title']} | L{b['level']} | {blockers} | {cp} |")
+        else:
+            print("None — all suggested decisions are committable.")
+        print()
+
+        print("## Level Gaps")
+        print()
+        print("| Level | Name | Committed | Suggested | Flags |")
+        print("|-------|------|-----------|-----------|-------|")
+        for lg in level_gaps:
+            flags = ", ".join(lg["flags"]) if lg["flags"] else "—"
+            print(f"| L{lg['level']} | {lg['level_name']} | {lg['committed']} | {lg['suggested']} | {flags} |")
+        print()
+
+        print(f"## High-Weight Nodes (top {top_n})")
+        print()
+        print("| ID | Title | Level | State | Downstream |")
+        print("|----|-------|-------|-------|------------|")
+        for hw in high_weight:
+            print(f"| {hw['id']} | {hw['title']} | L{hw['level']} | {hw['state']} | {hw['downstream_weight']} |")
+
+        return 0
+
+    # --- Default table output ---
+    print(f"Decision Frontier — {summary['total_decisions']} decisions, "
+          f"{summary['suggested']} suggested, "
+          f"{summary['committable_count']} committable, "
+          f"{summary['blocked_count']} blocked")
+
+    print(f"\n=== Committable Now ({len(committable_now)}) ===")
+    if committable_now:
+        print(f"{'ID':<12} {'Level':<7} {'Stakes':<8} {'Weight':<8} Title")
+        print("-" * 70)
+        for c in committable_now:
+            stakes = c["stakes"] or "—"
+            print(f"{c['id']:<12} L{c['level']:<6} {stakes:<8} {c['downstream_weight']:<8} {c['title']}")
+    else:
+        print("  None — all suggested decisions have uncommitted upstream.")
+
+    print(f"\n=== Blocked ({len(blocked)}) ===")
+    if blocked:
+        print(f"{'ID':<12} {'Level':<7} {'Path Len':<10} {'Blockers':<25} Critical Path")
+        print("-" * 90)
+        for b in blocked:
+            blockers = ", ".join(b["blockers"])
+            cp = " → ".join(b["critical_path"]) + f" → {b['id']}" if b["critical_path"] else "—"
+            print(f"{b['id']:<12} L{b['level']:<6} {b['critical_path_length']:<10} {blockers:<25} {cp}")
+    else:
+        print("  None — all suggested decisions are committable.")
+
+    print(f"\n=== Level Gaps ===")
+    print(f"{'Level':<8} {'Name':<12} {'Committed':<11} {'Suggested':<11} Flags")
+    print("-" * 60)
+    for lg in level_gaps:
+        flags = ", ".join(lg["flags"]) if lg["flags"] else "—"
+        print(f"L{lg['level']:<7} {lg['level_name']:<12} {lg['committed']:<11} {lg['suggested']:<11} {flags}")
+
+    print(f"\n=== High-Weight Nodes (top {top_n}) ===")
+    if high_weight:
+        print(f"{'ID':<12} {'Level':<7} {'State':<12} {'Weight':<8} Title")
+        print("-" * 70)
+        for hw in high_weight:
+            print(f"{hw['id']:<12} L{hw['level']:<6} {hw['state']:<12} {hw['downstream_weight']:<8} {hw['title']}")
 
     return 0
 
@@ -1817,6 +2132,9 @@ def main():
 
     elif cmd == "search":
         return cmd_search(sys.argv[2:])
+
+    elif cmd == "frontier":
+        return cmd_frontier(sys.argv[2:])
 
     elif cmd == "create":
         return cmd_create(sys.argv[2:])

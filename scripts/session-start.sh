@@ -50,6 +50,21 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$TOOL" ]; then
   fi
 fi
 
+# Frontier summary
+if command -v python3 >/dev/null 2>&1 && [ -f "$TOOL" ]; then
+  FRONTIER_LINE=$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" frontier --json 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    s = d['summary']
+    print(f\"Frontier: {s['committable_count']} committable, {s['blocked_count']} blocked\")
+except: pass
+" 2>/dev/null)
+  if [ -n "$FRONTIER_LINE" ]; then
+    echo "$FRONTIER_LINE"
+  fi
+fi
+
 echo ""
 
 # Last commit

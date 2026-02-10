@@ -63,11 +63,20 @@ When the person is exploring but hasn't crystallized intent, suggest capture:
 
 Use judgment — don't suggest this on every query, only when the person is clearly thinking through something that isn't ready to be a decision yet.
 
+### 8. Frontier Analysis
+
+When the person asks about priorities, next steps, what to focus on, or what's ready:
+1. Call `dna_frontier` (MCP) to get the full frontier analysis
+2. Present committable decisions sorted by impact (downstream weight)
+3. For blocked decisions, explain the critical path — what needs committing first
+4. Flag level gaps that need attention
+5. Note high-weight nodes that should be changed carefully
+
 ## Context
 
 - Constitution: `constitution/` directory
 - DNA: `dna/` directory
 - Project config: `.dna/config.json`
-- **Preferred:** MCP tools (`dna_search`, `dna_validate`, `dna_cascade`, `dna_health`, `scratchpad_list`, etc.)
+- **Preferred:** MCP tools (`dna_search`, `dna_validate`, `dna_cascade`, `dna_health`, `dna_frontier`, `scratchpad_list`, etc.)
 - **Fallback:** Bash with `dna-graph.py` (use the DNA tool path shown in session health output)
 - Format spec: see `format.md` in the dna plugin

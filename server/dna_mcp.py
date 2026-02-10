@@ -120,6 +120,21 @@ def dna_search(query: str) -> str:
     return _run(*args)
 
 
+@mcp.tool()
+def dna_frontier(top: int = 10) -> str:
+    """Compute the decision frontier — what to think about next. Returns JSON with
+    committable decisions, blocked decisions with critical paths, level gaps, and
+    high-weight nodes.
+
+    Args:
+        top: Number of high-weight nodes to include (default 10)
+    """
+    args = ["frontier", "--json"]
+    if top != 10:
+        args.extend(["--top", str(top)])
+    return _run(*args)
+
+
 # ---------------------------------------------------------------------------
 # Write tools
 # ---------------------------------------------------------------------------
