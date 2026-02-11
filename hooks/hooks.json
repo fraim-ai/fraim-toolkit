@@ -1,10 +1,26 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt.sh"
+        }]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [{
           "type": "command",
           "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh"
+        }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/stop-hook.sh"
         }]
       }
     ],
