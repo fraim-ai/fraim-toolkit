@@ -5,6 +5,8 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
 export PLUGIN_ROOT
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
 
 command -v python3 >/dev/null 2>&1 || exit 0
 

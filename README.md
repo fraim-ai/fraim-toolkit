@@ -1,30 +1,36 @@
-# fraim-toolkit (dna plugin)
+# fraim-toolkit (dna plugin v2.0)
 
-Decision DNA toolkit for fraim projects. Provides graph validation, governance hooks, MCP server, and skills for managing decisions as markdown files.
+Invisible decision capture for fraim projects. Decisions are captured as you talk — the person never needs to know the system exists.
+
+## How It Works
+
+The person talks naturally. The plugin runs two loops:
+
+**Main Loop (every turn):** The main agent checks for conflicts with existing decisions, processes inbox messages from background agents, and spawns background work when the person says something substantive.
+
+**Background Agent (on demand, haiku):** A lightweight agent that either maintains the decision graph (capturing new decisions, detecting contradictions) or synthesizes information across the graph. Communicates findings back through an inbox.
+
+The person never sees decision IDs, levels, states, or any internal machinery. They just have a design conversation.
 
 ## What's Included
 
 ```
 .claude-plugin/
-  plugin.json               Plugin metadata
+  plugin.json               Plugin metadata (v2.0.0)
   marketplace.json          Marketplace definition (fraim-plugins)
-.mcp.json                   MCP server configuration
+agents/
+  dna-agent.md              Background agent: maintain + analyze modes
 hooks/
   hooks.json                Hook configuration (SessionStart, PreToolUse, PostToolUse)
 scripts/
-  session-start.sh          SessionStart: regenerate health, show summary
+  session-start.sh          SessionStart: auto-bootstrap, behavior rules, briefing
   protect-contracts.sh      PreToolUse: block contract edits, warn on governance files
   validate-frontmatter.sh   PreToolUse: validate decision frontmatter
   post-edit-validate.sh     PostToolUse: advisory validation after edits
-server/
-  dna_mcp.py                MCP server: dna-graph as native Claude Code tools
 skills/
-  query/SKILL.md            Search and synthesize from decisions
-  apply/SKILL.md            Confirm → Mutate → Cascade → Commit
-  compile/SKILL.md          Compile decisions to contracts
+  compile/SKILL.md          Compile decisions to contracts (explicit only)
 tools/
-  dna-graph.py              CLI: validate, cascade, index, health, create, set, edit,
-                            compile-manifest, scratchpad, scratchpad-summary
+  dna-graph.py              CLI: 15 commands for graph operations
 format.md                   Decision format specification
 ```
 
@@ -43,53 +49,65 @@ claude --plugin-dir ~/Desktop/fraim-toolkit
 /plugin install dna@fraim-plugins
 ```
 
-## MCP Server
+## dna-graph Commands
 
-The plugin includes an MCP server that exposes dna-graph commands as native Claude Code tools. Requires `uv` (auto-installs `fastmcp` on first run).
+### Read
 
-| MCP Tool | Wraps | Purpose |
-|----------|-------|---------|
-| `dna_validate` | `validate` | Check frontmatter, topology, body content |
-| `dna_cascade` | `cascade` | Propagation preview (downstream or upstream) |
-| `dna_health` | `health` | Regenerate HEALTH.md + summary |
-| `dna_index` | `index` | Regenerate INDEX.md per directory |
-| `dna_compile_manifest` | `compile-manifest` | Deterministic skeleton for contracts |
-| `dna_create` | `create` | Create a new decision |
-| `dna_set` | `set` | Update frontmatter field |
-| `dna_edit` | `edit` | Replace body text with delta reporting |
-| `scratchpad_add` | `scratchpad add` | Add pre-decision entry |
-| `scratchpad_list` | `scratchpad list` | List scratchpad entries |
-| `scratchpad_mature` | `scratchpad mature` | Graduate entry to decision |
+| Command | Purpose |
+|---------|---------|
+| `validate` | Check frontmatter, graph topology, and body content |
+| `cascade NODE [--reverse]` | Propagation preview (downstream or upstream) |
+| `index` | Regenerate INDEX.md per directory |
+| `health` | Regenerate HEALTH.md + summary |
+| `search TERM [...]` | Search decisions by title and body content |
+| `frontier` | Compute the decision frontier |
+| `check "keywords"` | Fast scope/conflict check (committed only) |
+| `progress` | Mechanical counts for progress reporting |
 
-## Skills
+### Write
 
-| Command | Purpose | Invocation |
-|---------|---------|------------|
-| `/dna:query` | Search and synthesize from decisions | Auto on understanding signals |
-| `/dna:apply` | Confirm → Mutate → Cascade → Commit | Explicit only |
-| `/dna:compile` | Compile decisions to contracts | Explicit only |
+| Command | Purpose |
+|---------|---------|
+| `create DEC-NNN` | Create a new decision |
+| `set DEC-NNN field value` | Update frontmatter field |
+| `edit DEC-NNN "old" "new"` | Replace body text with delta reporting |
+| `compile-manifest` | Deterministic skeleton for contracts |
+| `bootstrap` | Auto-scaffold project structure |
 
-## Scratchpad
+### Inbox
 
-Pre-decision artifact storage for ideas that haven't crystallized into formal decisions. Stored in `.dna/scratchpad.json`.
+| Command | Purpose |
+|---------|---------|
+| `inbox add` | Add a message (background → main agent) |
+| `inbox list [--undelivered]` | List messages |
+| `inbox deliver MSG-NNN` | Mark messages as delivered |
+| `inbox clear [--delivered\|--all]` | Clear messages |
 
-**4 types:** idea, constraint, question, concern
+### Scratchpad
 
-**Lifecycle:** add → (optional link to decisions) → mature to a decision
+| Command | Purpose |
+|---------|---------|
+| `scratchpad add` | Add pre-decision entry |
+| `scratchpad list` | List entries |
+| `scratchpad mature SP-NNN DEC-NNN` | Graduate entry to decision |
+| `scratchpad-summary` | One-line summary of active entries |
 
-```sh
-dna-graph scratchpad add --type idea "Consider event sourcing for audit trail"
-dna-graph scratchpad add --type constraint "Must support offline mode" --links DEC-010
-dna-graph scratchpad list
-dna-graph scratchpad mature SP-001 DEC-057
-dna-graph scratchpad-summary
-```
+## Background Agent Modes
+
+| Mode | Triggered By | Actions |
+|------|-------------|---------|
+| **Maintain** | Opinions, decisions, preferences | Create decisions (always `suggested`), enrich existing, scratchpad, detect conflicts |
+| **Analyze** | Questions needing synthesis, gap detection | Search across graph, synthesize relationships, identify gaps |
+
+Both modes report findings via the inbox. The main agent weaves them into subsequent responses.
 
 ## Project Requirements
 
-- `.dna/config.json` at project root (project name, optional terminology/deleted artifact config)
+- `.dna/config.json` at project root (auto-created by `bootstrap`)
 - `dna/` and/or `constitution/` directories
 - `contracts/` directory for compiled output
+
+Fresh projects are auto-bootstrapped on first session start.
 
 ## Configuration
 

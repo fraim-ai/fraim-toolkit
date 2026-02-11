@@ -62,13 +62,27 @@ Structured for agent consumption. Constitution + project decisions.
 
 ## What to do
 
-0. Read `.dna/config.json` to get the project name for contract headers
-1. Run `dna-graph compile-manifest --target {target} --json` to get the deterministic skeleton
-2. Read decisions listed in the manifest (not all decisions — the manifest provides the exact set)
-3. Sort by level, then by dependency order within level
-4. Compile the target contract(s) following the structure above
-5. Present compiled output for human approval
-6. Write to `contracts/` on approval
+0. **Completeness analysis:** Run `dna-graph progress --json` to assess graph health before compilation. If foundation is thin (level 1-2 gaps), warn the person before proceeding.
+   ```sh
+   CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" progress --json
+   ```
+
+1. Read `.dna/config.json` to get the project name for contract headers
+
+2. Get the deterministic compilation skeleton:
+   ```sh
+   CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" compile-manifest --target {target} --json
+   ```
+
+3. Read decisions listed in the manifest (not all decisions — the manifest provides the exact set)
+
+4. Sort by level, then by dependency order within level
+
+5. Compile the target contract(s) following the structure above
+
+6. Present compiled output for human approval
+
+7. Write to `contracts/` on approval
 
 ## Constraints
 
@@ -83,5 +97,6 @@ Structured for agent consumption. Constitution + project decisions.
 - DNA: `dna/` directory
 - Contracts: `contracts/` directory
 - Project config: `.dna/config.json`
-- Graph tool: use the DNA tool path shown in session health output
+- All commands via Bash: `CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" <command>`
+- Tool path is available from session-start output (## Tool Paths section)
 - Format spec: see `format.md` in the dna plugin

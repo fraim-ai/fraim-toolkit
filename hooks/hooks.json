@@ -4,7 +4,7 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh"
+          "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh"
         }]
       }
     ],
@@ -13,14 +13,14 @@
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/protect-contracts.sh"
+          "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/protect-contracts.sh"
         }]
       },
       {
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate-frontmatter.sh"
+          "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/validate-frontmatter.sh"
         }]
       }
     ],
@@ -29,7 +29,7 @@
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post-edit-validate.sh"
+          "command": "/bin/sh ${CLAUDE_PLUGIN_ROOT}/scripts/post-edit-validate.sh"
         }]
       }
     ]

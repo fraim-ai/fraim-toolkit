@@ -10,12 +10,21 @@ Subcommands (read):
   health                Generate HEALTH.md from current state
   search TERM           Search decisions by title and body content
   frontier              Compute the decision frontier — what to think about next
+  check KEYWORDS        Fast inline scope/conflict check (committed only)
+  progress              Mechanical counts for progress reporting
 
 Subcommands (write):
   create DEC-NNN        Create a new decision with pre-validated frontmatter
   set DEC-NNN FIELD VAL Update a single frontmatter field with pre-validation
   edit DEC-NNN OLD NEW  Replace body text with pre/post validation delta
   compile-manifest      Produce deterministic skeleton for contract compilation
+  bootstrap             Auto-scaffold project structure
+
+Subcommands (inbox):
+  inbox add             Add a message (background → main agent)
+  inbox list            List messages (optionally --undelivered only)
+  inbox deliver         Mark messages as delivered
+  inbox clear           Clear delivered or all messages
 
 Subcommands (scratchpad):
   scratchpad add        Add a pre-decision entry (idea, constraint, question, concern)
@@ -24,6 +33,7 @@ Subcommands (scratchpad):
   scratchpad-summary    One-line summary of active scratchpad entries
 """
 
+import fcntl
 import glob
 import os
 import re
@@ -47,7 +57,10 @@ VALID_STAKES = {"high", "medium", "low"}
 VALID_LEVELS = {1, 2, 3, 4}
 
 SCRATCHPAD_FILE = os.path.join(PROJECT_ROOT, ".dna", "scratchpad.json")
+INBOX_FILE = os.path.join(PROJECT_ROOT, ".dna", "inbox.json")
 VALID_SP_TYPES = {"idea", "constraint", "question", "concern"}
+VALID_INBOX_PRIORITIES = {"critical", "normal", "low"}
+VALID_INBOX_TYPES = {"conflict", "capture", "enrichment", "analysis", "question"}
 
 # Body content linter patterns (static — always active)
 RE_STALE_INF = re.compile(r'\bINF-\d{3}\b')
@@ -100,6 +113,29 @@ def _get_deleted_artifacts():
 
 
 # ---------------------------------------------------------------------------
+# File locking helper
+# ---------------------------------------------------------------------------
+
+def _locked_read_modify_write(filepath, modifier_fn):
+    """Read JSON file, apply modifier, write back — under exclusive lock."""
+    lock_path = filepath + ".lock"
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(lock_path, "w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            data = json.load(open(filepath)) if os.path.exists(filepath) else {}
+            data = modifier_fn(data)
+            tmp = filepath + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.write("\n")
+            os.rename(tmp, filepath)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Scratchpad helpers
 # ---------------------------------------------------------------------------
 
@@ -113,13 +149,10 @@ def _load_scratchpad():
 
 
 def _save_scratchpad(entries):
-    """Atomic write of scratchpad entries to .dna/scratchpad.json."""
-    os.makedirs(os.path.dirname(SCRATCHPAD_FILE), exist_ok=True)
-    tmp_path = SCRATCHPAD_FILE + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump({"entries": entries}, f, indent=2)
-        f.write("\n")
-    os.rename(tmp_path, SCRATCHPAD_FILE)
+    """Atomic write of scratchpad entries to .dna/scratchpad.json with file locking."""
+    def modifier(data):
+        return {"entries": entries}
+    _locked_read_modify_write(SCRATCHPAD_FILE, modifier)
 
 
 def _next_sp_id(entries):
@@ -142,6 +175,19 @@ def _scratchpad_summary(entries):
         counts[e.get("type", "unknown")] += 1
     parts = [f"{c} {t}(s)" for t, c in sorted(counts.items())]
     return f"{len(active)} active — {', '.join(parts)}"
+
+
+# ---------------------------------------------------------------------------
+# Inbox helpers
+# ---------------------------------------------------------------------------
+
+def _load_inbox():
+    """Read .dna/inbox.json, return (messages list, next_id)."""
+    if not os.path.exists(INBOX_FILE):
+        return [], 1
+    with open(INBOX_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("messages", []), data.get("next_id", 1)
 
 
 # ---------------------------------------------------------------------------
@@ -1446,6 +1492,217 @@ def cmd_frontier(args):
 
 
 # ---------------------------------------------------------------------------
+# Check subcommand
+# ---------------------------------------------------------------------------
+
+
+def cmd_check(args):
+    """Fast inline scope/conflict check against committed decisions.
+
+    Usage: dna-graph check "keyword1 keyword2" [--json]
+
+    Returns matching committed decisions with snippets, plus level foundation
+    health. Designed for main agent to call on every turn.
+    """
+    json_output = "--json" in args
+    terms = [a.lower() for a in args if a != "--json"]
+
+    if not terms:
+        print('Usage: dna-graph check "keywords" [--json]', file=sys.stderr)
+        return 1
+
+    nodes = load_graph()
+
+    # Search committed decisions only
+    matching = []
+    for nid in sorted(nodes.keys()):
+        n = nodes[nid]
+        if n.get("state") != "committed":
+            continue
+        title = (n.get("title") or "").lower()
+        body = (n.get("_body") or "")
+        body_lower = body.lower()
+
+        matched = False
+        for term in terms:
+            if term in title or term in body_lower:
+                matched = True
+                break
+
+        if not matched:
+            continue
+
+        # Extract snippets from Decision and Assumptions sections
+        decision_snippet = ""
+        assumptions_snippet = ""
+        for section_name, attr_name in [("Decision", "decision"), ("Assumptions", "assumptions")]:
+            pattern = rf'^## {section_name}\s*$(.*?)(?=^## |\Z)'
+            m = re.search(pattern, body, re.MULTILINE | re.DOTALL)
+            if m:
+                text = m.group(1).strip()[:200]
+                if attr_name == "decision":
+                    decision_snippet = text
+                else:
+                    assumptions_snippet = text
+
+        matching.append({
+            "id": nid,
+            "title": n.get("title", ""),
+            "level": n.get("level"),
+            "decision_snippet": decision_snippet,
+            "assumptions_snippet": assumptions_snippet,
+        })
+
+    # Level foundation
+    level_foundation = {}
+    foundation_thin = False
+    foundation_thin_reasons = []
+
+    for lvl in (1, 2, 3, 4):
+        committed = 0
+        suggested = 0
+        for n in nodes.values():
+            if n.get("level") != lvl:
+                continue
+            s = n.get("state", "unknown")
+            if s == "committed":
+                committed += 1
+            elif s == "suggested":
+                suggested += 1
+        level_foundation[str(lvl)] = {"committed": committed, "suggested": suggested}
+        if suggested > 0 and lvl <= 2:
+            foundation_thin = True
+            foundation_thin_reasons.append(f"Level {lvl} has {suggested} uncommitted decision(s)")
+        if committed == 0 and lvl <= 2:
+            foundation_thin = True
+            foundation_thin_reasons.append(f"Level {lvl} has no committed decisions")
+
+    result = {
+        "matching_committed": matching,
+        "level_foundation": level_foundation,
+        "foundation_thin": foundation_thin,
+    }
+    if foundation_thin:
+        result["foundation_thin_reason"] = "; ".join(foundation_thin_reasons)
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+    else:
+        if matching:
+            print(f"Found {len(matching)} committed decision(s) matching: {' '.join(terms)}")
+            for m in matching:
+                print(f"  {m['id']} (L{m['level']}): {m['title']}")
+                if m['decision_snippet']:
+                    snippet = m['decision_snippet'][:80]
+                    print(f"    Decision: {snippet}{'...' if len(m['decision_snippet']) > 80 else ''}")
+        else:
+            print(f"No committed decisions match: {' '.join(terms)}")
+        if foundation_thin:
+            print(f"\nFoundation thin: {result['foundation_thin_reason']}")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Progress subcommand
+# ---------------------------------------------------------------------------
+
+
+def cmd_progress(args):
+    """Mechanical counts for progress reporting.
+
+    Usage: dna-graph progress [--json]
+
+    Returns per-level counts, commitment rates, certainty labels, downstream
+    constrained counts, and next_actions list.
+    """
+    json_output = "--json" in args
+    nodes = load_graph()
+    downstream = _compute_transitive_downstream(nodes)
+
+    levels = []
+    for lvl in (1, 2, 3, 4):
+        committed = 0
+        suggested = 0
+        superseded = 0
+        total = 0
+        for n in nodes.values():
+            if n.get("level") != lvl:
+                continue
+            total += 1
+            s = n.get("state", "unknown")
+            if s == "committed":
+                committed += 1
+            elif s == "suggested":
+                suggested += 1
+            elif s == "superseded":
+                superseded += 1
+
+        # Certainty label
+        active = total - superseded
+        if active == 0:
+            certainty = "empty"
+        elif committed == active and committed > 0:
+            certainty = "complete"
+        elif committed > 0 and committed >= active * 0.5:
+            certainty = "mostly_constrained"
+        elif committed > 0:
+            certainty = "partially_constrained"
+        else:
+            certainty = "weakly_constrained"
+
+        # Count downstream constrained
+        downstream_constrained = 0
+        for nid, n in nodes.items():
+            if n.get("level") != lvl or n.get("state") != "committed":
+                continue
+            downstream_constrained += len(downstream.get(nid, set()))
+
+        levels.append({
+            "level": lvl,
+            "name": LEVEL_NAMES[lvl],
+            "committed": committed,
+            "suggested": suggested,
+            "superseded": superseded,
+            "total": total,
+            "commitment_rate": round(committed / max(active, 1), 2),
+            "certainty": certainty,
+            "downstream_constrained": downstream_constrained,
+        })
+
+    # Next actions
+    next_actions = []
+    for lvl_data in levels:
+        if lvl_data["certainty"] in ("empty", "weakly_constrained"):
+            next_actions.append(f"Level {lvl_data['level']} ({lvl_data['name']}): needs more committed decisions")
+        elif lvl_data["suggested"] > 0:
+            next_actions.append(f"Level {lvl_data['level']} ({lvl_data['name']}): {lvl_data['suggested']} decision(s) ready to review")
+
+    result = {
+        "total_decisions": len(nodes),
+        "total_committed": sum(l["committed"] for l in levels),
+        "total_suggested": sum(l["suggested"] for l in levels),
+        "levels": levels,
+        "next_actions": next_actions,
+    }
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Progress: {result['total_decisions']} decisions "
+              f"({result['total_committed']} committed, {result['total_suggested']} suggested)")
+        print()
+        for l in levels:
+            print(f"  L{l['level']} {l['name']:<12} {l['committed']}/{l['total']} committed ({l['certainty']})")
+        if next_actions:
+            print("\nNext actions:")
+            for a in next_actions:
+                print(f"  - {a}")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Write subcommands
 # ---------------------------------------------------------------------------
 
@@ -2085,6 +2342,264 @@ def _sp_mature(args):
 
 
 # ---------------------------------------------------------------------------
+# Inbox subcommands
+# ---------------------------------------------------------------------------
+
+
+def cmd_inbox(args):
+    """Message queue between background and main agent.
+
+    Usage:
+      dna-graph inbox add --priority normal --type capture "message" [--context '{"key":"val"}']
+      dna-graph inbox list [--undelivered] [--json]
+      dna-graph inbox deliver MSG-001 [MSG-002 ...]
+      dna-graph inbox clear [--delivered] [--all]
+    """
+    if not args:
+        print("Usage: dna-graph inbox {add|list|deliver|clear} ...", file=sys.stderr)
+        return 1
+
+    sub = args[0]
+    if sub == "add":
+        return _inbox_add(args[1:])
+    elif sub == "list":
+        return _inbox_list(args[1:])
+    elif sub == "deliver":
+        return _inbox_deliver(args[1:])
+    elif sub == "clear":
+        return _inbox_clear(args[1:])
+    else:
+        print(f"Unknown inbox subcommand: {sub}", file=sys.stderr)
+        return 1
+
+
+def _inbox_add(args):
+    """Add a message to the inbox."""
+    priority = None
+    msg_type = None
+    content = None
+    context = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--priority" and i + 1 < len(args):
+            i += 1
+            priority = args[i]
+        elif args[i] == "--type" and i + 1 < len(args):
+            i += 1
+            msg_type = args[i]
+        elif args[i] == "--context" and i + 1 < len(args):
+            i += 1
+            try:
+                context = json.loads(args[i])
+            except json.JSONDecodeError:
+                print("Error: --context must be valid JSON", file=sys.stderr)
+                return 1
+        elif not args[i].startswith("--"):
+            content = args[i]
+        else:
+            print(f"Error: unknown flag '{args[i]}'", file=sys.stderr)
+            return 1
+        i += 1
+
+    if not priority:
+        print("Error: --priority is required (critical, normal, low)", file=sys.stderr)
+        return 1
+    if priority not in VALID_INBOX_PRIORITIES:
+        print(f"Error: invalid priority '{priority}' (must be critical, normal, low)", file=sys.stderr)
+        return 1
+    if not msg_type:
+        print("Error: --type is required (conflict, capture, enrichment, analysis, question)", file=sys.stderr)
+        return 1
+    if msg_type not in VALID_INBOX_TYPES:
+        print(f"Error: invalid type '{msg_type}' (must be conflict, capture, enrichment, analysis, question)", file=sys.stderr)
+        return 1
+    if not content:
+        print("Error: message content is required", file=sys.stderr)
+        return 1
+
+    def modifier(data):
+        messages = data.get("messages", [])
+        next_id = data.get("next_id", 1)
+        msg_id = f"MSG-{next_id:03d}"
+        messages.append({
+            "id": msg_id,
+            "priority": priority,
+            "type": msg_type,
+            "message": content,
+            "context": context or {},
+            "created": date.today().isoformat(),
+            "delivered": False,
+        })
+        return {"messages": messages, "next_id": next_id + 1}
+
+    data = _locked_read_modify_write(INBOX_FILE, modifier)
+    msg_id = data["messages"][-1]["id"]
+    print(f"Added {msg_id} [{priority}/{msg_type}]: {content}")
+    return 0
+
+
+def _inbox_list(args):
+    """List inbox messages."""
+    undelivered_only = "--undelivered" in args
+    json_output = "--json" in args
+
+    messages, _ = _load_inbox()
+
+    if undelivered_only:
+        messages = [m for m in messages if not m.get("delivered")]
+
+    if json_output:
+        print(json.dumps({"messages": messages, "count": len(messages)}, indent=2))
+        return 0
+
+    if not messages:
+        print("Inbox is empty." if not undelivered_only else "No undelivered messages.")
+        return 0
+
+    print(f"{'ID':<10} {'Priority':<10} {'Type':<14} {'Delivered':<11} Message")
+    print("-" * 80)
+    for m in messages:
+        delivered = "yes" if m.get("delivered") else "no"
+        msg_preview = m["message"][:50] + ("..." if len(m["message"]) > 50 else "")
+        print(f"{m['id']:<10} {m['priority']:<10} {m['type']:<14} {delivered:<11} {msg_preview}")
+
+    return 0
+
+
+def _inbox_deliver(args):
+    """Mark messages as delivered."""
+    if not args:
+        print("Usage: dna-graph inbox deliver MSG-NNN [MSG-NNN ...]", file=sys.stderr)
+        return 1
+
+    msg_ids = set(args)
+
+    def modifier(data):
+        for m in data.get("messages", []):
+            if m["id"] in msg_ids:
+                m["delivered"] = True
+        return data
+
+    _locked_read_modify_write(INBOX_FILE, modifier)
+    print(f"Delivered: {', '.join(sorted(msg_ids))}")
+    return 0
+
+
+def _inbox_clear(args):
+    """Clear inbox messages."""
+    clear_delivered = "--delivered" in args
+    clear_all = "--all" in args
+
+    if not clear_delivered and not clear_all:
+        print("Usage: dna-graph inbox clear [--delivered] [--all]", file=sys.stderr)
+        return 1
+
+    removed = [0]
+
+    def modifier(data):
+        messages = data.get("messages", [])
+        if clear_all:
+            removed[0] = len(messages)
+            data["messages"] = []
+        else:
+            remaining = [m for m in messages if not m.get("delivered")]
+            removed[0] = len(messages) - len(remaining)
+            data["messages"] = remaining
+        return data
+
+    _locked_read_modify_write(INBOX_FILE, modifier)
+    print(f"Cleared {removed[0]} message(s)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap subcommand
+# ---------------------------------------------------------------------------
+
+
+def cmd_bootstrap(args):
+    """Auto-scaffold project structure.
+
+    Usage: dna-graph bootstrap [--project-name "Name"] [--json]
+
+    Creates: .dna/config.json, .dna/scratchpad.json, .dna/inbox.json,
+    dna/, constitution/, contracts/. Skips existing files/dirs.
+    """
+    project_name = None
+    json_output = "--json" in args
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--project-name" and i + 1 < len(args):
+            i += 1
+            project_name = args[i]
+        i += 1
+
+    if not project_name:
+        project_name = os.path.basename(PROJECT_ROOT) or "Untitled Project"
+
+    created = []
+    skipped = []
+
+    # Directories
+    for d in [".dna", "dna", "constitution", "contracts"]:
+        path = os.path.join(PROJECT_ROOT, d)
+        if os.path.isdir(path):
+            skipped.append(d + "/")
+        else:
+            os.makedirs(path, exist_ok=True)
+            created.append(d + "/")
+
+    # .dna/config.json
+    config_path = os.path.join(PROJECT_ROOT, ".dna", "config.json")
+    if os.path.exists(config_path):
+        skipped.append(".dna/config.json")
+    else:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump({"project": {"name": project_name}}, f, indent=2)
+            f.write("\n")
+        created.append(".dna/config.json")
+
+    # .dna/scratchpad.json
+    sp_path = os.path.join(PROJECT_ROOT, ".dna", "scratchpad.json")
+    if os.path.exists(sp_path):
+        skipped.append(".dna/scratchpad.json")
+    else:
+        with open(sp_path, "w", encoding="utf-8") as f:
+            json.dump({"entries": []}, f, indent=2)
+            f.write("\n")
+        created.append(".dna/scratchpad.json")
+
+    # .dna/inbox.json
+    inbox_path = os.path.join(PROJECT_ROOT, ".dna", "inbox.json")
+    if os.path.exists(inbox_path):
+        skipped.append(".dna/inbox.json")
+    else:
+        with open(inbox_path, "w", encoding="utf-8") as f:
+            json.dump({"messages": [], "next_id": 1}, f, indent=2)
+            f.write("\n")
+        created.append(".dna/inbox.json")
+
+    result = {
+        "project_name": project_name,
+        "created": created,
+        "skipped": skipped,
+    }
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Bootstrapped project: {project_name}")
+        if created:
+            print(f"  Created: {', '.join(created)}")
+        if skipped:
+            print(f"  Skipped (exists): {', '.join(skipped)}")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2147,6 +2662,18 @@ def main():
 
     elif cmd == "compile-manifest":
         return cmd_compile_manifest(sys.argv[2:])
+
+    elif cmd == "check":
+        return cmd_check(sys.argv[2:])
+
+    elif cmd == "progress":
+        return cmd_progress(sys.argv[2:])
+
+    elif cmd == "inbox":
+        return cmd_inbox(sys.argv[2:])
+
+    elif cmd == "bootstrap":
+        return cmd_bootstrap(sys.argv[2:])
 
     elif cmd == "scratchpad":
         return cmd_scratchpad(sys.argv[2:])

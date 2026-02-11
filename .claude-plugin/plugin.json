@@ -1,9 +1,9 @@
 {
   "name": "dna",
-  "description": "Decision DNA toolkit — graph validation, hooks, and skills for fraim decision systems",
-  "version": "1.2.0",
+  "description": "Invisible decision capture — decisions are captured as you talk",
+  "version": "2.0.0",
   "author": { "name": "Kyle Slater" },
   "hooks": "./hooks/hooks.json",
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  "agents": "./agents/"
 }
