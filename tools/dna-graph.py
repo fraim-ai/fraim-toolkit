@@ -31,6 +31,11 @@ Subcommands (scratchpad):
   scratchpad list       List scratchpad entries (active and matured)
   scratchpad mature     Graduate a scratchpad entry to a decision
   scratchpad-summary    One-line summary of active scratchpad entries
+
+Subcommands (audit):
+  audit log             Append an entry (--source SOURCE --event EVENT [--detail "..."])
+  audit show            Display log ([--last N] [--source SOURCE])
+  audit clear           Truncate the log
 """
 
 import fcntl
@@ -40,7 +45,7 @@ import re
 import sys
 import json
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -58,6 +63,7 @@ VALID_LEVELS = {1, 2, 3, 4}
 
 SCRATCHPAD_FILE = os.path.join(PROJECT_ROOT, ".dna", "scratchpad.json")
 INBOX_FILE = os.path.join(PROJECT_ROOT, ".dna", "inbox.json")
+AUDIT_FILE = os.path.join(PROJECT_ROOT, ".dna", "audit.log")
 VALID_SP_TYPES = {"idea", "constraint", "question", "concern"}
 VALID_INBOX_PRIORITIES = {"critical", "normal", "low"}
 VALID_INBOX_TYPES = {"conflict", "capture", "enrichment", "analysis", "question"}
@@ -133,6 +139,29 @@ def _locked_read_modify_write(filepath, modifier_fn):
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return data
+
+
+# ---------------------------------------------------------------------------
+# Audit log helper
+# ---------------------------------------------------------------------------
+
+def _audit_log(source, event, detail=""):
+    """Append one tab-delimited line to .dna/audit.log. Best-effort — never breaks the tool."""
+    try:
+        detail = str(detail).replace("\n", " ").replace("\t", " ")[:200]
+        ts = datetime.now().strftime("%H:%M:%S")
+        line = f"{ts}\t{source}\t{event}\t{detail}\n"
+        os.makedirs(os.path.dirname(AUDIT_FILE), exist_ok=True)
+        lock_path = AUDIT_FILE + ".lock"
+        with open(lock_path, "w") as lock_fd:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+                    f.write(line)
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -2600,6 +2629,87 @@ def cmd_bootstrap(args):
 
 
 # ---------------------------------------------------------------------------
+# Audit commands
+# ---------------------------------------------------------------------------
+
+def cmd_audit(args):
+    """Manage the session audit log."""
+    if not args:
+        print("Usage: dna-graph audit {log|show|clear}", file=sys.stderr)
+        return 1
+
+    sub = args[0]
+
+    if sub == "log":
+        source = None
+        event = None
+        detail = ""
+        i = 1
+        while i < len(args):
+            if args[i] == "--source" and i + 1 < len(args):
+                source = args[i + 1]; i += 2
+            elif args[i] == "--event" and i + 1 < len(args):
+                event = args[i + 1]; i += 2
+            elif args[i] == "--detail" and i + 1 < len(args):
+                detail = args[i + 1]; i += 2
+            else:
+                i += 1
+        if not source or not event:
+            print("Usage: dna-graph audit log --source SOURCE --event EVENT [--detail \"...\"]", file=sys.stderr)
+            return 1
+        _audit_log(source, event, detail)
+        return 0
+
+    elif sub == "show":
+        last_n = 0
+        source_filter = None
+        i = 1
+        while i < len(args):
+            if args[i] == "--last" and i + 1 < len(args):
+                last_n = int(args[i + 1]); i += 2
+            elif args[i] == "--source" and i + 1 < len(args):
+                source_filter = args[i + 1]; i += 2
+            else:
+                i += 1
+        if not os.path.exists(AUDIT_FILE):
+            print("(no audit log)")
+            return 0
+        with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if source_filter:
+            lines = [l for l in lines if l.split("\t")[1] == source_filter if "\t" in l]
+        if last_n:
+            lines = lines[-last_n:]
+        if not lines:
+            print("(no entries)")
+            return 0
+        print(f"{'TIME':<10} {'SOURCE':<14} {'EVENT':<28} DETAIL")
+        print("-" * 80)
+        for line in lines:
+            parts = line.rstrip("\n").split("\t", 3)
+            if len(parts) >= 3:
+                ts = parts[0]
+                src = parts[1]
+                evt = parts[2]
+                det = parts[3] if len(parts) > 3 else ""
+                print(f"{ts:<10} {src:<14} {evt:<28} {det}")
+        return 0
+
+    elif sub == "clear":
+        try:
+            os.makedirs(os.path.dirname(AUDIT_FILE), exist_ok=True)
+            with open(AUDIT_FILE, "w", encoding="utf-8") as f:
+                f.truncate(0)
+        except Exception:
+            pass
+        return 0
+
+    else:
+        print(f"Unknown audit subcommand: {sub}", file=sys.stderr)
+        return 1
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2609,6 +2719,10 @@ def main():
         return 1
 
     cmd = sys.argv[1]
+
+    # Auto-log every command invocation (skip audit to prevent recursion)
+    if cmd != "audit":
+        _audit_log("command", " ".join(sys.argv[1:]))
 
     if cmd == "validate":
         nodes = load_graph()
@@ -2684,6 +2798,9 @@ def main():
         if summary:
             print(f"Scratchpad: {summary}")
         return 0
+
+    elif cmd == "audit":
+        return cmd_audit(sys.argv[2:])
 
     else:
         print(f"Unknown command: {cmd}")

@@ -25,6 +25,7 @@ fi
 if command -v python3 >/dev/null 2>&1 && [ -f "$TOOL" ]; then
   CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" health 2>/dev/null
   CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" inbox clear --delivered 2>/dev/null
+  CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" audit clear 2>/dev/null
 fi
 
 # ───────────────────────────────────────────────────────────────────────
@@ -43,10 +44,17 @@ When person says "build me an investor update," capture the decisions behind it
 NEVER mention: decision IDs, levels, states, stakes, graph, frontier, cascade,
 DNA, scratchpad, inbox, background agents, dna-graph, or internal terminology.
 
-EVERY TURN — execute these 4 steps in order:
+EVERY TURN — execute these 6 steps in order:
+
+### Step 0. AUDIT — log the person's message (do not mention to person)
+BEHAVIOR_RULES
+
+echo "   \`CLAUDE_PROJECT_DIR=\"$PROJECT_DIR\" python3 \"$TOOL\" audit log --source conversation --event person --detail \"<brief summary of what person said>\"\`"
+
+cat <<'BEHAVIOR_RULES0B'
 
 ### Step 1. CONTEXT — quick check against committed decisions
-BEHAVIOR_RULES
+BEHAVIOR_RULES0B
 
 echo "   \`CLAUDE_PROJECT_DIR=\"$PROJECT_DIR\" python3 \"$TOOL\" check \"keywords from person message\" --json\`"
 
@@ -103,9 +111,16 @@ cat <<'BEHAVIOR_RULES6'
 ### Step 4. REPLY — respond naturally to the person
    Work with the person as a design partner. Never narrate what you did internally.
 
+### Step 5. AUDIT — log your reply (do not mention to person)
+BEHAVIOR_RULES6
+
+echo "   \`CLAUDE_PROJECT_DIR=\"$PROJECT_DIR\" python3 \"$TOOL\" audit log --source conversation --event reply --detail \"<1-sentence summary of your reply>\"\`"
+
+cat <<'BEHAVIOR_RULES6B'
+
 ### Progress requests
 When person asks "where are we?" / "what have we covered?" / progress:
-BEHAVIOR_RULES6
+BEHAVIOR_RULES6B
 
 echo "  Run \`CLAUDE_PROJECT_DIR=\"$PROJECT_DIR\" python3 \"$TOOL\" progress --json\`"
 
@@ -195,6 +210,12 @@ try:
 except: pass
 " 2>/dev/null
   fi
+fi
+
+# Audit: log session start
+if command -v python3 >/dev/null 2>&1 && [ -f "$TOOL" ]; then
+  CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$TOOL" audit log \
+    --source session --event start --detail "project=$PROJ_NAME" 2>/dev/null
 fi
 
 # Last commit

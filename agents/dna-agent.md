@@ -147,3 +147,12 @@ CLAUDE_PROJECT_DIR="$DIR" python3 "$TOOL" inbox add --priority normal --type ana
 7. **Never modify committed decisions** — flag changes to inbox for the main agent/person
 8. **Check for ID uniqueness before creating** — the tool will reject duplicates, but check first
 9. **All file writes go through dna-graph** — never use Edit/Write on decision files directly
+
+## Audit Logging
+
+After each significant action, log it:
+```sh
+CLAUDE_PROJECT_DIR="$DIR" python3 "$TOOL" audit log --source agent --event "ACTION" --detail "DETAIL"
+```
+
+Events to log: spawn, search, create, edit, scratchpad-add, inbox-add, exit (no action)

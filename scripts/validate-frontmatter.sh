@@ -4,8 +4,13 @@
 
 command -v python3 >/dev/null 2>&1 || exit 0
 
-python3 -c "
-import sys, json, re, os
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
+TOOL="$PLUGIN_ROOT/tools/dna-graph.py"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+AUDIT_TOOL="$TOOL" CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 -c "
+import sys, json, re, os, subprocess
 
 try:
     data = json.load(sys.stdin)
@@ -85,11 +90,24 @@ try:
 except Exception:
     pass  # graceful degradation
 
+def _audit(detail):
+    try:
+        t = os.environ.get('AUDIT_TOOL', '')
+        if t:
+            subprocess.run([sys.executable, t, 'audit', 'log',
+                '--source', 'hook', '--event', 'validate-frontmatter',
+                '--detail', detail], capture_output=True, timeout=5)
+    except Exception:
+        pass
+
 if errors:
     print(f'BLOCKED: Frontmatter validation failed for {basename}:')
     for e in errors:
         print(f'  - {e}')
+    _audit(f'BLOCKED {basename} ({len(errors)} errors)')
     sys.exit(2)
+
+_audit(f'PASS {basename}')
 " 2>/dev/null
 
 exit $?
