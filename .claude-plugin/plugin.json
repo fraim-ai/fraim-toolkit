@@ -1,7 +1,7 @@
 {
   "name": "dna",
   "description": "Invisible decision capture — decisions are captured as you talk",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "author": { "name": "Kyle Slater" },
   "hooks": "./hooks/hooks.json",
   "skills": "./skills/"
