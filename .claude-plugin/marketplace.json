@@ -4,6 +4,7 @@
   "plugins": [
     {
       "name": "dna",
+      "version": "2.1.0",
       "source": "./",
       "description": "Invisible decision capture — decisions are captured as you talk"
     }
