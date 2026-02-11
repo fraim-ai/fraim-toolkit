@@ -9,6 +9,9 @@ PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
 TOOL="$PLUGIN_ROOT/tools/dna-graph.py"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Skip if running inside the plugin source directory
+[ -f "$PROJECT_DIR/.claude-plugin/plugin.json" ] && exit 0
+
 AUDIT_TOOL="$TOOL" CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 -c "
 import sys, json, re, os, subprocess
 

@@ -8,6 +8,9 @@ export PLUGIN_ROOT
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
 
+# Skip if running inside the plugin source directory
+[ -f "$PROJECT_DIR/.claude-plugin/plugin.json" ] && exit 0
+
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 -c "

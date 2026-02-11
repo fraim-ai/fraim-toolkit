@@ -7,6 +7,14 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 TOOL="$PLUGIN_ROOT/tools/dna-graph.py"
 
 # ───────────────────────────────────────────────────────────────────────
+# Self-detection: skip if running inside the plugin source directory
+# ───────────────────────────────────────────────────────────────────────
+
+if [ -f "$PROJECT_DIR/.claude-plugin/plugin.json" ]; then
+  exit 0
+fi
+
+# ───────────────────────────────────────────────────────────────────────
 # Auto-bootstrap: detect fresh project (no .dna/) and scaffold
 # ───────────────────────────────────────────────────────────────────────
 

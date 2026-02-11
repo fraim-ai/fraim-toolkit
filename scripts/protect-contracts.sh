@@ -10,6 +10,9 @@ PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
 TOOL="$PLUGIN_ROOT/tools/dna-graph.py"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Skip if running inside the plugin source directory
+[ -f "$PROJECT_DIR/.claude-plugin/plugin.json" ] && exit 0
+
 FILE_PATH=$(cat | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_path',''))" 2>/dev/null) || exit 0
 
 [ -z "$FILE_PATH" ] && exit 0
