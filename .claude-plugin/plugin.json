@@ -4,6 +4,5 @@
   "version": "2.0.0",
   "author": { "name": "Kyle Slater" },
   "hooks": "./hooks/hooks.json",
-  "skills": "./skills/",
-  "agents": "./agents/"
+  "skills": "./skills/"
 }
